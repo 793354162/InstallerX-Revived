@@ -4,7 +4,9 @@ package com.rosan.installer.di
 
 import com.rosan.installer.data.engine.parser.ApkParser
 import com.rosan.installer.data.engine.parser.FileTypeDetector
+import com.rosan.installer.data.engine.parser.PackagePreprocessor
 import com.rosan.installer.data.engine.parser.UnifiedContainerAnalyser
+import com.rosan.installer.data.engine.provider.InstalledAppInfoProviderImpl
 import com.rosan.installer.data.engine.parser.strategy.ApkmStrategy
 import com.rosan.installer.data.engine.parser.strategy.ApksStrategy
 import com.rosan.installer.data.engine.parser.strategy.ModuleStrategy
@@ -19,12 +21,14 @@ import com.rosan.installer.domain.engine.repository.AnalyserRepository
 import com.rosan.installer.domain.engine.repository.AppIconRepository
 import com.rosan.installer.domain.engine.repository.AppInstallerRepository
 import com.rosan.installer.domain.engine.repository.ModuleInstallerRepository
+import com.rosan.installer.domain.engine.provider.InstalledAppInfoProvider
 import com.rosan.installer.domain.engine.usecase.AnalyzeInstallStateUseCase
 import com.rosan.installer.domain.engine.usecase.AnalyzePackageUseCase
 import com.rosan.installer.domain.engine.usecase.ApproveSessionUseCase
 import com.rosan.installer.domain.engine.usecase.ClearAppIconCacheUseCase
 import com.rosan.installer.domain.engine.usecase.GetAppIconColorUseCase
 import com.rosan.installer.domain.engine.usecase.GetAppIconUseCase
+import com.rosan.installer.domain.engine.usecase.GetAppLabelUseCase
 import com.rosan.installer.domain.engine.usecase.GetSessionConfirmationDetailsUseCase
 import com.rosan.installer.domain.engine.usecase.ProcessInstallationUseCase
 import com.rosan.installer.domain.engine.usecase.ProcessUninstallUseCase
@@ -48,6 +52,8 @@ val engineModule = module {
     singleOf(::ModuleStrategy)
     // Unified Analyzer
     singleOf(::UnifiedContainerAnalyser)
+    singleOf(::PackagePreprocessor)
+    singleOf(::InstalledAppInfoProviderImpl) { bind<InstalledAppInfoProvider>() }
 
     // Repositories
     singleOf(::AppIconRepositoryImpl) { bind<AppIconRepository>() }
@@ -66,4 +72,5 @@ val engineModule = module {
     factoryOf(::GetAppIconUseCase)
     factoryOf(::GetAppIconColorUseCase)
     factoryOf(::ClearAppIconCacheUseCase)
+    factoryOf(::GetAppLabelUseCase)
 }

@@ -13,8 +13,8 @@ import androidx.core.graphics.scale
 import com.materialkolor.quantize.QuantizerCelebi
 import com.materialkolor.score.Score
 import com.rosan.installer.data.engine.repository.AppIconRepositoryImpl.Companion.QUANTIZE_BITMAP_MAX_SIZE
-import com.rosan.installer.domain.engine.model.AppEntity
-import com.rosan.installer.domain.engine.model.DataEntity
+import com.rosan.installer.domain.engine.model.packageinfo.AppEntity
+import com.rosan.installer.domain.engine.model.source.DataEntity
 import com.rosan.installer.domain.engine.repository.AppIconRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -161,7 +161,13 @@ class AppIconRepositoryImpl(
         }
 
         return try {
-            deferred.await() ?: fallbackSystemIcon
+            val bitmap = deferred.await()
+
+            if (bitmap == null) {
+                conditionalRemove(cacheKey, deferred)
+            }
+
+            bitmap ?: fallbackSystemIcon
         } catch (_: CancellationException) {
             // If the *caller* was cancelled, ensureActive() rethrows immediately,
             // honouring structured concurrency.
@@ -182,7 +188,7 @@ class AppIconRepositoryImpl(
     override suspend fun extractColorFromApp(
         sessionId: String,
         packageName: String,
-        entityToInstall: AppEntity.BaseEntity?,
+        entityToInstall: AppEntity?,
         preferSystemIcon: Boolean,
         userId: Int?
     ): Int? {
@@ -192,6 +198,18 @@ class AppIconRepositoryImpl(
             targetUserId, COLOR_EXTRACT_SIZE_PX, preferSystemIcon
         )
         return iconBitmap?.extractSeedColor()
+    }
+
+    override suspend fun extractColorFromBitmap(bitmap: Bitmap?): Int? {
+        if (bitmap == null) return null
+        return try {
+            bitmap.extractSeedColor()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to extract color from bitmap")
+            null
+        }
     }
 
     override suspend fun extractColorFromDrawable(drawable: Drawable?): Int? {
@@ -253,9 +271,15 @@ class AppIconRepositoryImpl(
         iconSizePx: Int,
         preferSystemIcon: Boolean
     ): Bitmap? {
-        val baseEntity = entityToInstall as? AppEntity.BaseEntity
-        val rawApkIconDrawable = baseEntity?.icon
-        val apkPath = (baseEntity?.data as? DataEntity.FileEntity)?.path
+        // Extract raw drawable depending on the entity type
+        val rawEntityIconDrawable = when (entityToInstall) {
+            is AppEntity.BaseEntity -> entityToInstall.icon
+            is AppEntity.ModuleEntity -> entityToInstall.icon
+            else -> null
+        }
+
+        // Only BaseEntity (APK) supports system loader fallback
+        val apkPath = ((entityToInstall as? AppEntity.BaseEntity)?.data as? DataEntity.FileEntity)?.path
 
         val installedAppInfo = try {
             pm.getApplicationInfo(packageName, PackageManager.GET_META_DATA)
@@ -263,14 +287,16 @@ class AppIconRepositoryImpl(
             null
         }
 
+        // Modules generally won't have installedAppInfo or apkPath,
+        // so they will naturally fall back to rawEntityIconDrawable.
         return if (preferSystemIcon) {
             installedAppInfo?.let {
                 AppIconCache.loadIconBitmap(context, it, userId, iconSizePx)
             }
                 ?: apkPath?.let { loadIconFromApkWithSystemLoader(it, userId, iconSizePx) }
-                ?: rawApkIconDrawable?.toSafeBitmap(iconSizePx)
+                ?: rawEntityIconDrawable?.toSafeBitmap(iconSizePx)
         } else {
-            rawApkIconDrawable?.toSafeBitmap(iconSizePx)
+            rawEntityIconDrawable?.toSafeBitmap(iconSizePx)
                 ?: installedAppInfo?.let {
                     AppIconCache.loadIconBitmap(context, it, userId, iconSizePx)
                 }
@@ -305,11 +331,27 @@ class AppIconRepositoryImpl(
 
     /**
      * Converts a [Drawable] to a [Bitmap] with a maximum-size constraint.
-     * Never upscales (scale factor capped at 1.0); only downscales when the
-     * intrinsic dimensions exceed [maxSizePx].
-     * Prevents `Canvas: trying to draw too large bitmap` crashes.
+     * Prevents memory issues while avoiding premature upscaling caused by density mismatch.
      */
     private fun Drawable.toSafeBitmap(maxSizePx: Int): Bitmap {
+        // Bypass intrinsic dimensions for raw bitmaps to prevent density-induced upscaling.
+        // Bare PNG/JPG files from ZIPs lack density metadata and default to mdpi.
+        // On high-density screens, this causes intrinsicWidth to inflate, leading
+        // core-ktx to forcibly upscale the raw pixel buffer, destroying image quality.
+        if (this is android.graphics.drawable.BitmapDrawable && this.bitmap != null) {
+            val bmp = this.bitmap
+
+            // Return the pure original pixel buffer if it fits within limits.
+            if (bmp.width <= maxSizePx && bmp.height <= maxSizePx) {
+                return bmp
+            }
+
+            // Only downscale based on exact pixel dimensions, completely ignoring display density.
+            val scale = minOf(1f, maxSizePx.toFloat() / bmp.width, maxSizePx.toFloat() / bmp.height)
+            return bmp.scale((bmp.width * scale).toInt().coerceAtLeast(1), (bmp.height * scale).toInt().coerceAtLeast(1))
+        }
+
+        // Fallback for VectorDrawables, AdaptiveIconDrawables, etc.
         val rawWidth = intrinsicWidth.takeIf { it > 0 } ?: maxSizePx
         val rawHeight = intrinsicHeight.takeIf { it > 0 } ?: maxSizePx
 

@@ -2,9 +2,10 @@
 // Copyright (C) 2023-2026 iamr0s InstallerX Revived contributors
 package com.rosan.installer.ui.activity
 
+import android.annotation.SuppressLint
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageInstaller
-import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import androidx.activity.ComponentActivity
@@ -21,21 +22,22 @@ import androidx.lifecycle.lifecycleScope
 import com.rosan.installer.R
 import com.rosan.installer.core.env.AppConfig
 import com.rosan.installer.data.session.manager.InstallerSessionManager
-import com.rosan.installer.domain.device.model.Level
+import com.rosan.installer.core.device.model.Level
 import com.rosan.installer.domain.device.model.PermissionType
 import com.rosan.installer.domain.device.provider.PermissionChecker
 import com.rosan.installer.domain.session.model.ProgressEntity
 import com.rosan.installer.domain.session.repository.InstallerSessionRepository
-import com.rosan.installer.domain.settings.model.ThemeState
+import com.rosan.installer.domain.settings.model.preferences.ThemeState
 import com.rosan.installer.domain.settings.provider.ThemeStateProvider
-import com.rosan.installer.domain.settings.repository.AppSettingsRepo
+import com.rosan.installer.domain.settings.repository.AppSettingsRepository
 import com.rosan.installer.domain.settings.repository.BooleanSetting
-import com.rosan.installer.ui.common.auth.BiometricAuthBridge
+import com.rosan.installer.framework.auth.BiometricAuthBridge
 import com.rosan.installer.ui.common.permission.PermissionRequester
 import com.rosan.installer.ui.page.main.installer.InstallerPage
 import com.rosan.installer.ui.page.miuix.installer.MiuixInstallerPage
 import com.rosan.installer.ui.theme.InstallerTheme
-import com.rosan.installer.util.hasFlag
+import com.rosan.installer.ui.theme.isPhoneDevice
+import com.rosan.installer.core.bitmask.hasFlag
 import com.rosan.installer.util.toast
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -52,7 +54,7 @@ class InstallerActivity : ComponentActivity(), KoinComponent {
         private const val ACTION_CONFIRM_PERMISSIONS = "android.content.pm.action.CONFIRM_PERMISSIONS"
     }
 
-    private val appSettingsRepo by inject<AppSettingsRepo>()
+    private val appSettingsRepo by inject<AppSettingsRepository>()
     private val themeStateProvider: ThemeStateProvider by inject()
     private var disableNotificationOnDismiss = false
 
@@ -71,9 +73,6 @@ class InstallerActivity : ComponentActivity(), KoinComponent {
     override fun onCreate(savedInstanceState: Bundle?) {
         if (AppConfig.isDebug && AppConfig.LEVEL == Level.UNSTABLE) logIntentDetails("onNewIntent", intent)
         enableEdgeToEdge()
-        // Compat Navigation Bar color for Xiaomi Devices
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
-            window.isNavigationBarContrastEnforced = false
         super.onCreate(savedInstanceState)
         Timber.d("onCreate. SavedInstanceState is ${if (savedInstanceState == null) "null" else "not null"}")
 
@@ -160,8 +159,11 @@ class InstallerActivity : ComponentActivity(), KoinComponent {
         Timber.d("onNewIntent: Received new intent.")
         if (AppConfig.isDebug && AppConfig.LEVEL == Level.UNSTABLE)
             logIntentDetails("onNewIntent", intent)
-        // Fix for Microsoft Edge
-        if (this.session != null && intent.flags.hasFlag(Intent.FLAG_ACTIVITY_NEW_TASK)) {
+
+        val isSystemConfirmAction = intent.action == ACTION_CONFIRM_INSTALL || intent.action == ACTION_CONFIRM_PERMISSIONS
+
+        // Prevent re-initialization on Microsoft Edge, but allow system confirmation intents to pass through.
+        if (!isSystemConfirmAction && this.session != null && intent.flags.hasFlag(Intent.FLAG_ACTIVITY_NEW_TASK)) {
             Timber.w("onNewIntent was called with NEW_TASK, but an installer instance already exists. Ignoring re-initialization.")
             super.onNewIntent(intent)
             return
@@ -169,18 +171,31 @@ class InstallerActivity : ComponentActivity(), KoinComponent {
 
         this.intent = intent
         super.onNewIntent(intent)
-        restoreInstaller()
 
-        if (intent.action == ACTION_CONFIRM_INSTALL || intent.action == ACTION_CONFIRM_PERMISSIONS) {
-            val sessionId = intent.getIntExtra(PackageInstaller.EXTRA_SESSION_ID, -1)
-            if (sessionId != -1) {
-                Timber.d("onNewIntent: Dispatching resolveConfirmInstall for session $sessionId")
-                session?.resolveConfirmInstall(this, sessionId)
+        if (isSystemConfirmAction) {
+            val sysSessionId = intent.getIntExtra(PackageInstaller.EXTRA_SESSION_ID, -1)
+
+            if (sysSessionId != -1) {
+                // Route the system confirmation request to the currently active session if one exists.
+                // This bridges the gap between the suspended commit coroutine and the system UI request.
+                val currentSession = this.session
+                if (currentSession != null) {
+                    Timber.d("onNewIntent: Sending confirm request to ACTIVE session [id=${currentSession.id}]")
+                    currentSession.resolveConfirmInstall(this, sysSessionId)
+                } else {
+                    // Fallback: Restore or create a new session if this confirmation was triggered
+                    // without an active foreground installation process (e.g., silent background trigger).
+                    Timber.d("onNewIntent: No active session found. Restoring for system confirm.")
+                    restoreInstaller()
+                    session?.resolveConfirmInstall(this, sysSessionId)
+                }
             } else {
                 Timber.e("onNewIntent: CONFIRM_INSTALL intent missing EXTRA_SESSION_ID")
                 finish()
             }
         } else {
+            // Proceed with normal intent resolution for standard APK installations.
+            restoreInstaller()
             Timber.d("onNewIntent: Dispatching resolveInstall")
             session?.resolveInstall(this)
         }
@@ -319,15 +334,20 @@ class InstallerActivity : ComponentActivity(), KoinComponent {
             if (background || progress is ProgressEntity.Ready || progress is ProgressEntity.InstallResolving || progress is ProgressEntity.Finish)
                 return@setContent
 
+            // Force portrait on phones only when UI is actually rendered
+            if (isPhoneDevice) {
+                @SuppressLint("SourceLockedOrientationActivity")
+                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            }
+
             InstallerTheme(
-                isExpressive = uiState.isExpressive,
                 useMiuix = uiState.useMiuix,
                 themeMode = uiState.themeMode,
                 paletteStyle = uiState.paletteStyle,
                 colorSpec = uiState.colorSpec,
                 useDynamicColor = uiState.useDynamicColor,
                 useMiuixMonet = uiState.useMiuixMonet,
-                seedColor = uiState.seedColor
+                seedColor = androidx.compose.ui.graphics.Color(uiState.seedColor)
             ) {
                 Box(modifier = Modifier.fillMaxSize()) {
                     if (uiState.useMiuix) {

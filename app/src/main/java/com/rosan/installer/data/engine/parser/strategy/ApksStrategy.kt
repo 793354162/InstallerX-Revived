@@ -5,9 +5,9 @@ package com.rosan.installer.data.engine.parser.strategy
 import com.rosan.installer.data.engine.parser.ApkParser
 import com.rosan.installer.data.engine.parser.parseSplitMetadata
 import com.rosan.installer.domain.engine.model.AnalyseExtraEntity
-import com.rosan.installer.domain.engine.model.AppEntity
-import com.rosan.installer.domain.engine.model.DataEntity
-import com.rosan.installer.domain.settings.model.ConfigModel
+import com.rosan.installer.domain.engine.model.packageinfo.AppEntity
+import com.rosan.installer.domain.engine.model.source.DataEntity
+import com.rosan.installer.domain.settings.model.config.ConfigModel
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import timber.log.Timber
@@ -49,7 +49,7 @@ class ApksStrategy(
         // 2. Parse Base APK (Heavy operation - needs Icon/Label)
         val baseDeferred = async {
             Timber.d("ApksStrategy: Parsing base entry full details...")
-            apkParser.parseZipEntryFull(config, zipFile, baseEntry, data, extra)
+            apkParser.parseZipEntryFull(zipFile, baseEntry, data, extra)
         }
 
         // 3. Process Splits (Lightweight operation)

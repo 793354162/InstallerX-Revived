@@ -6,7 +6,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetValue
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -17,9 +17,9 @@ import com.rosan.installer.domain.session.repository.InstallerSessionRepository
 import com.rosan.installer.ui.page.main.installer.InstallerStage
 import com.rosan.installer.ui.page.main.installer.InstallerViewAction
 import com.rosan.installer.ui.page.main.installer.InstallerViewModel
+import com.rosan.installer.ui.page.main.installer.components.PositionDialog
 import com.rosan.installer.ui.page.main.installer.dialog.inner.ModuleInstallSheetContent
-import com.rosan.installer.ui.page.main.widget.dialog.PositionDialog
-import com.rosan.installer.ui.page.main.widget.util.ToastEventCollector
+import com.rosan.installer.ui.page.main.widget.util.InstallerEventCollector
 import com.rosan.installer.ui.theme.InstallerMaterialExpressiveTheme
 import com.rosan.installer.ui.theme.InstallerTheme
 import com.rosan.installer.ui.theme.LocalInstallerColorScheme
@@ -38,7 +38,7 @@ fun DialogPage(
     val stage = uiState.stage
     val viewSettings = uiState.viewSettings
     val temporarySeedColor = uiState.seedColor
-    val useBlur = viewSettings.useBlur && viewSettings.uiExpressive
+    val useBlur = viewSettings.useBlur
 
     val globalColorScheme = InstallerTheme.colorScheme
     val isDark = InstallerTheme.isDark
@@ -60,7 +60,7 @@ fun DialogPage(
         viewModel.dispatch(InstallerViewAction.CollectSession(session))
     }
 
-    ToastEventCollector(viewModel)
+    InstallerEventCollector(viewModel)
 
     CompositionLocalProvider(
         LocalInstallerColorScheme provides activeColorScheme
@@ -77,12 +77,14 @@ fun DialogPage(
                 // Capturing a changing local variable causes the lambda below to change,
                 // which forces rememberModalBottomSheetState to recreate the state, resetting the sheet.
 
-                val sheetState = rememberModalBottomSheetState(
-                    skipPartiallyExpanded = true,
+                val sheetState = rememberBottomSheetState(
+                    initialValue = SheetValue.Hidden,
+                    enabledValues = setOf(
+                        SheetValue.Hidden,
+                        SheetValue.Expanded
+                    ),
                     confirmValueChange = { sheetValue ->
                         if (sheetValue == SheetValue.Hidden) {
-                            // Access the property directly from the stable viewModel.
-                            // This ensures the lambda instance remains stable across state changes.
                             viewModel.uiState.value.isDismissible
                         } else {
                             true
@@ -106,9 +108,11 @@ fun DialogPage(
                     }
 
                     ModuleInstallSheetContent(
+                        rootMode = uiState.rootMode,
                         outputLines = stage.output,
                         isFinished = stage.isFinished,
                         onReboot = { viewModel.dispatch(InstallerViewAction.Reboot("")) },
+                        onSoftReboot = { viewModel.dispatch(InstallerViewAction.Reboot("ksud_soft_reboot")) },
                         onClose = { viewModel.dispatch(InstallerViewAction.Close) },
                         colorScheme = colorScheme
                     )
@@ -116,13 +120,27 @@ fun DialogPage(
             }
             // Handle other non-Ready states: Show standard PositionDialog
             else if (stage !is InstallerStage.Ready) {
-                val params = dialogGenerateParams(session, viewModel)
+                val params = dialogGenerateParams(viewModel)
 
                 PositionDialog(
                     useBlur = useBlur,
                     onDismissRequest = {
-                        if (uiState.isDismissible) {
-                            if (viewSettings.disableNotificationOnDismiss) {
+                        val currentUiState = viewModel.uiState.value
+                        val currentStage = currentUiState.stage
+
+                        if (currentUiState.isDismissible) {
+                            // If we are in the confirmation stage and the user taps outside (scrim) or swipes back
+                            if (currentStage is InstallerStage.InstallConfirm) {
+                                // UNCONDITIONAL EXIT
+                                // 1. Reject the session to clean up the system state
+                                viewModel.dispatch(InstallerViewAction.ApproveSession(currentStage.sessionId, false))
+                                // 2. Immediately force close the UI, bypassing any subsequent error screens
+                                viewModel.dispatch(InstallerViewAction.Close)
+                                return@PositionDialog
+                            }
+
+                            // Normal dismissal logic for other stages
+                            if (currentUiState.viewSettings.disableNotificationOnDismiss) {
                                 viewModel.dispatch(InstallerViewAction.Close)
                             } else {
                                 viewModel.dispatch(InstallerViewAction.Background)

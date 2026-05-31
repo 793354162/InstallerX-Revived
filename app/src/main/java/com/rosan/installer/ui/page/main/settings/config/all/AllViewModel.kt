@@ -4,14 +4,11 @@ package com.rosan.installer.ui.page.main.settings.config.all
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.navigation.NavController
-import com.rosan.installer.domain.settings.model.ConfigModel
-import com.rosan.installer.domain.settings.repository.AppSettingsRepo
+import com.rosan.installer.domain.settings.model.config.ConfigModel
+import com.rosan.installer.domain.settings.repository.AppSettingsRepository
 import com.rosan.installer.domain.settings.repository.BooleanSetting
-import com.rosan.installer.domain.settings.repository.ConfigRepo
+import com.rosan.installer.domain.settings.repository.ConfigRepository
 import com.rosan.installer.domain.settings.util.ConfigOrder
-import com.rosan.installer.ui.page.main.settings.SettingsScreen
-import com.rosan.installer.ui.page.miuix.settings.MiuixSettingsScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -25,9 +22,8 @@ import kotlinx.coroutines.launch
 import org.koin.core.component.KoinComponent
 
 class AllViewModel(
-    var navController: NavController,
-    private val repo: ConfigRepo,
-    private val appSettingsRepo: AppSettingsRepo
+    private val repo: ConfigRepository,
+    private val appSettingsRepo: AppSettingsRepository
 ) : ViewModel(), KoinComponent {
 
     private val _uiState = MutableStateFlow(AllViewState())
@@ -41,7 +37,7 @@ class AllViewModel(
     init {
         // Fetch the initial "user read tips" state before starting the continuous data flow
         viewModelScope.launch {
-            val userReadScopeTips = appSettingsRepo.getBoolean(BooleanSetting.UserReadScopeTips, default = false).first()
+            val userReadScopeTips = appSettingsRepo.getBoolean(BooleanSetting.UserReadScopeTips, false).first()
             _uiState.update { it.copy(userReadScopeTips = userReadScopeTips) }
             loadData()
         }
@@ -55,7 +51,6 @@ class AllViewModel(
             is AllViewAction.DeleteDataConfig -> deleteDataConfig(action.configModel)
             is AllViewAction.RestoreDataConfig -> restoreDataConfig(action.configModel)
             is AllViewAction.EditDataConfig -> editDataConfig(action.configModel)
-            is AllViewAction.MiuixEditDataConfig -> editMiuixDataConfig(action.configModel)
             is AllViewAction.ApplyConfig -> applyConfig(action.configModel)
         }
     }
@@ -105,21 +100,8 @@ class AllViewModel(
 
     private fun editDataConfig(configModel: ConfigModel) {
         viewModelScope.launch {
-            navController.navigate(
-                SettingsScreen.Builder.EditConfig(
-                    configModel.id
-                ).route
-            )
-        }
-    }
-
-    private fun editMiuixDataConfig(configModel: ConfigModel) {
-        viewModelScope.launch {
-            navController.navigate(
-                MiuixSettingsScreen.Builder.MiuixEditConfig(
-                    configModel.id
-                ).route
-            )
+            // Emit navigation event instead of calling navigator directly
+            _eventFlow.emit(AllViewEvent.NavigateToEditConfig(configModel.id))
         }
     }
 
@@ -138,11 +120,8 @@ class AllViewModel(
 
     private fun applyConfig(configModel: ConfigModel) {
         viewModelScope.launch {
-            navController.navigate(
-                SettingsScreen.Builder.ApplyConfig(
-                    configModel.id
-                ).route
-            )
+            // Emit navigation event instead of calling navigator directly
+            _eventFlow.emit(AllViewEvent.NavigateToApplyConfig(configModel.id))
         }
     }
 }

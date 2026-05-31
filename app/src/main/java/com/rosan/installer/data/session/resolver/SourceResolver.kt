@@ -17,10 +17,11 @@ import com.rosan.installer.data.session.util.copyToWithProgress
 import com.rosan.installer.data.session.util.getRealPathFromUri
 import com.rosan.installer.data.session.util.pathUnify
 import com.rosan.installer.data.session.util.transferWithProgress
-import com.rosan.installer.domain.engine.model.DataEntity
+import com.rosan.installer.domain.engine.model.source.DataEntity
 import com.rosan.installer.domain.session.exception.ResolveException
-import com.rosan.installer.domain.session.exception.ResolvedFailedNoInternetAccessException
 import com.rosan.installer.domain.session.model.ProgressEntity
+import com.rosan.installer.domain.session.model.ResolveErrorType
+import com.rosan.installer.domain.session.model.ResolveResult
 import com.rosan.installer.domain.session.repository.NetworkResolver
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -36,8 +37,8 @@ import java.io.RandomAccessFile
 import java.util.UUID
 
 class SourceResolver(
-    private val context: Context,               // 2. 从构造函数传入 Context
-    private val networkResolver: NetworkResolver, // 3. 从构造函数传入 NetworkResolver
+    private val context: Context,
+    private val networkResolver: NetworkResolver,
     private val cacheDirectory: String,
     private val progressFlow: MutableSharedFlow<ProgressEntity>
 ) {
@@ -45,7 +46,7 @@ class SourceResolver(
 
     fun getTrackedCloseables(): List<Closeable> = closeables
 
-    suspend fun resolve(intent: Intent): List<DataEntity> {
+    suspend fun resolve(intent: Intent): ResolveResult {
         val uris = extractUris(intent)
         Timber.d("resolve: URIs extracted from intent (${uris.size}).")
 
@@ -55,7 +56,12 @@ class SourceResolver(
             if (!currentCoroutineContext().isActive) throw CancellationException()
             data.addAll(resolveSingleUri(uri))
         }
-        return data
+
+        // Return the packaged result
+        return ResolveResult(
+            uris = uris.map { it.toString() },
+            data = data
+        )
     }
 
     private fun extractUris(intent: Intent): List<Uri> {
@@ -145,7 +151,10 @@ class SourceResolver(
             }
         }
 
-        if (uris.isEmpty()) throw ResolveException(action, uris)
+        if (uris.isEmpty()) throw ResolveException(
+            errorType = ResolveErrorType.GENERIC_FAILED,
+            message = "action: $action, uri: $uris"
+        )
         return uris
     }
 
@@ -167,20 +176,41 @@ class SourceResolver(
             "http", "https" -> {
                 if (!AppConfig.isInternetAccessEnabled) {
                     Timber.d("Internet access is disabled in app settings. Aborting network request.")
-                    throw ResolvedFailedNoInternetAccessException("No internet access to download files.")
+                    throw ResolveException(
+                        errorType = ResolveErrorType.NO_INTERNET_ACCESS,
+                        message = "No internet access to download files."
+                    )
                 }
 
                 networkResolver.resolve(uri, cacheDirectory, progressFlow)
             }
 
-            else -> throw ResolveException("Unsupported scheme: $scheme", listOf(uri))
+            else -> throw ResolveException(
+                errorType = ResolveErrorType.GENERIC_FAILED,
+                message = "Unsupported scheme: $scheme, uris: $uri"
+            )
         }
     }
 
     private suspend fun resolveContentUri(uri: Uri): List<DataEntity> {
-        val afd = context.contentResolver?.openAssetFileDescriptor(uri, "r")
-            ?: throw IOException("Cannot open file descriptor: $uri")
+        val afd = try {
+            context.contentResolver?.openAssetFileDescriptor(uri, "r")
+                ?: throw IOException("Cannot open file descriptor: $uri")
+        } catch (e: SecurityException) {
+            // Directly check if the exception message matches the pattern of a cross-process URI grant failure
+            val isUriPermissionDenial = e.message?.contains("grantUriPermission", ignoreCase = true) == true
 
+            if (isUriPermissionDenial) {
+                Timber.w(e, "SecurityException caught. Installer is likely hidden from initiator. Throwing Exception.")
+                throw ResolveException(
+                    errorType = ResolveErrorType.INITIATOR_NOT_VISIBLE,
+                    cause = e
+                )
+            }
+
+            // Rethrow if it doesn't match the signature or initiator is unknown
+            throw e
+        }
         // Resolve real path
         val fd = afd.parcelFileDescriptor.fd
         val procPath = "/proc/${Os.getpid()}/fd/$fd"

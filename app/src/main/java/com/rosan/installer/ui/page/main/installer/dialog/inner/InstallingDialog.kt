@@ -20,28 +20,27 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.rosan.installer.R
-import com.rosan.installer.domain.session.repository.InstallerSessionRepository
 import com.rosan.installer.ui.page.main.installer.InstallerStage
 import com.rosan.installer.ui.page.main.installer.InstallerViewAction
 import com.rosan.installer.ui.page.main.installer.InstallerViewModel
+import com.rosan.installer.ui.page.main.installer.dialog.DialogButton
 import com.rosan.installer.ui.page.main.installer.dialog.DialogInnerParams
 import com.rosan.installer.ui.page.main.installer.dialog.DialogParams
 import com.rosan.installer.ui.page.main.installer.dialog.DialogParamsType
+import com.rosan.installer.ui.page.main.installer.dialog.dialogButtons
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun installingDialog(
-    session: InstallerSessionRepository, viewModel: InstallerViewModel
+    viewModel: InstallerViewModel
 ): DialogParams {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val stage = uiState.stage
-    val viewSettings = uiState.viewSettings
 
     val installingStage = stage as? InstallerStage.Installing
 
     // Call InstallInfoDialog for base structure (icon, title, subtitle with new version)
     val baseParams = installInfoDialog(
-        session = session,
         viewModel = viewModel,
         onTitleExtraClick = {}
     )
@@ -83,19 +82,12 @@ fun installingDialog(
                         animationSpec = ProgressIndicatorDefaults.ProgressAnimationSpec,
                         label = "ProgressBarAnimation"
                     )
-                    if (viewSettings.uiExpressive)
-                        LinearWavyProgressIndicator(
-                            progress = { animatedProgress },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(8.dp),
-                        )
-                    else
-                        LinearWavyProgressIndicator(
-                            progress = { animatedProgress },
-                            modifier = Modifier.fillMaxWidth(),
-                            amplitude = { 0f }
-                        )
+                    LinearWavyProgressIndicator(
+                        progress = { animatedProgress },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp),
+                    )
                 } else {
                     // other method have unspecified progress
                     LinearWavyProgressIndicator(
@@ -108,7 +100,7 @@ fun installingDialog(
         buttons = dialogButtons(DialogParamsType.ButtonsCancel.id) {
             // Provides a button to move to background
             listOf(
-                DialogButton(stringResource(R.string.installer_silent_install)) {
+                DialogButton(stringResource(R.string.installer_move_to_background)) {
                     viewModel.dispatch(InstallerViewAction.Background)
                 }
             )

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// Copyright (C) 2023-2026 InstallerX Revived contributors
+// Copyright (C) 2025-2026 InstallerX Revived contributors
 package com.rosan.installer.ui.page.miuix.settings.config.apply
 
 import androidx.compose.animation.AnimatedVisibility
@@ -18,10 +18,17 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -44,14 +51,15 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.navigation.NavController
 import com.rosan.installer.R
 import com.rosan.installer.ui.icons.AppIcons
+import com.rosan.installer.ui.navigation.LocalNavigator
 import com.rosan.installer.ui.page.main.settings.config.apply.ApplyViewAction
 import com.rosan.installer.ui.page.main.settings.config.apply.ApplyViewApp
 import com.rosan.installer.ui.page.main.settings.config.apply.ApplyViewModel
@@ -60,10 +68,8 @@ import com.rosan.installer.ui.page.main.settings.config.apply.ViewContent
 import com.rosan.installer.ui.page.miuix.widgets.MiuixBackButton
 import com.rosan.installer.ui.page.miuix.widgets.MiuixDropdown
 import com.rosan.installer.ui.theme.getMiuixAppBarColor
-import com.rosan.installer.ui.theme.installerHazeEffect
-import com.rosan.installer.ui.theme.rememberMiuixHazeStyle
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeSource
+import com.rosan.installer.ui.theme.installerMiuixBlurEffect
+import com.rosan.installer.ui.theme.rememberMiuixBlurBackdrop
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
@@ -83,29 +89,26 @@ import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Switch
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TopAppBar
-import top.yukonga.miuix.kmp.extra.WindowListPopup
+import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Close
 import top.yukonga.miuix.kmp.icon.extended.More
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
+import top.yukonga.miuix.kmp.window.WindowListPopup
 
 @Composable
 fun MiuixApplyPage(
-    navController: NavController,
     id: Long,
-    viewModel: ApplyViewModel = koinViewModel {
-        parametersOf(id)
-    }
+    useBlur: Boolean,
+    viewModel: ApplyViewModel = koinViewModel { parametersOf(id) }
 ) {
+    val navigator = LocalNavigator.current
     val uiState by viewModel.state.collectAsStateWithLifecycle()
     val coroutineScope = rememberCoroutineScope()
     val lazyListState = rememberLazyListState()
     val scrollBehavior = MiuixScrollBehavior()
-
-    val hazeState = if (uiState.useBlur) remember { HazeState() } else null
-    val hazeStyle = rememberMiuixHazeStyle()
 
     val showFloating by remember {
         derivedStateOf {
@@ -113,12 +116,17 @@ fun MiuixApplyPage(
         }
     }
 
+    val layoutDirection = LocalLayoutDirection.current
+    val horizontalSafeInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal).asPaddingValues()
+
+    val topBarBackdrop = rememberMiuixBlurBackdrop(useBlur)
+
     Scaffold(
         topBar = {
             Column(
                 modifier = Modifier
-                    .installerHazeEffect(hazeState, hazeStyle)
-                    .background(hazeState.getMiuixAppBarColor())
+                    .installerMiuixBlurEffect(topBarBackdrop)
+                    .background(topBarBackdrop.getMiuixAppBarColor())
             ) {
                 TopAppBar(
                     color = Color.Transparent,
@@ -126,9 +134,8 @@ fun MiuixApplyPage(
                     title = stringResource(R.string.config_scope),
                     navigationIcon = {
                         MiuixBackButton(
-                            modifier = Modifier.padding(start = 16.dp),
                             icon = MiuixIcons.Regular.Close,
-                            onClick = { navController.navigateUp() })
+                            onClick = { navigator.pop() })
                     },
                     actions = { TopAppBarActions(viewModel = viewModel, uiState = uiState) }
                 )
@@ -136,7 +143,12 @@ fun MiuixApplyPage(
                 InputField(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
+                        .padding(
+                            start = 16.dp + horizontalSafeInsets.calculateStartPadding(
+                                layoutDirection
+                            ),
+                            end = 16.dp + horizontalSafeInsets.calculateEndPadding(layoutDirection)
+                        )
                         .padding(bottom = 8.dp),
                     query = uiState.search,
                     onQueryChange = { viewModel.dispatch(ApplyViewAction.Search(it)) },
@@ -161,7 +173,12 @@ fun MiuixApplyPage(
 
                 Box(
                     modifier = Modifier
-                        .padding(horizontal = 6.dp)
+                        .padding(
+                            start = 6.dp + horizontalSafeInsets.calculateStartPadding(
+                                layoutDirection
+                            ),
+                            end = 6.dp + horizontalSafeInsets.calculateEndPadding(layoutDirection)
+                        )
                         .padding(bottom = 6.dp)
                 ) {
                     MiuixDropdown(
@@ -246,13 +263,15 @@ fun MiuixApplyPage(
                         LazyColumn(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .then(hazeState?.let { Modifier.hazeSource(it) } ?: Modifier)
+                                .then(topBarBackdrop?.let { Modifier.layerBackdrop(it) } ?: Modifier)
                                 .scrollEndHaptic()
                                 .overScrollVertical()
                                 .nestedScroll(scrollBehavior.nestedScrollConnection),
                             state = lazyListState,
                             contentPadding = PaddingValues(
+                                start = horizontalSafeInsets.calculateStartPadding(layoutDirection),
                                 top = paddingValues.calculateTopPadding() + 8.dp,
+                                end = horizontalSafeInsets.calculateEndPadding(layoutDirection),
                                 bottom = paddingValues.calculateBottomPadding()
                             ),
                             overscrollEffect = null
@@ -448,7 +467,6 @@ private fun TopAppBarActions(viewModel: ApplyViewModel, uiState: ApplyViewState)
     }
 
     IconButton(
-        modifier = Modifier.padding(end = 12.dp),
         onClick = {
             showMenu.value = true
         },

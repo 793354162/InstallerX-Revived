@@ -3,7 +3,7 @@
 package com.rosan.installer.ui.page.main.settings.config.apply
 
 import androidx.compose.ui.graphics.ImageBitmap
-import com.rosan.installer.domain.settings.model.AppModel
+import com.rosan.installer.domain.settings.model.app.AppModel
 
 data class ApplyViewState(
     // App data state
@@ -23,10 +23,7 @@ data class ApplyViewState(
     val selectedFirst: Boolean = true,
     val showSystemApp: Boolean = false,
     val showPackageName: Boolean = true,
-    val search: String = "",
-
-    // UI State
-    val useBlur: Boolean = true,
+    val search: String = ""
 ) {
     enum class OrderType {
         Label, PackageName, FirstInstallTime

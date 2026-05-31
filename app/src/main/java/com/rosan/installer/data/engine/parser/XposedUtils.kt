@@ -2,7 +2,7 @@
 // Copyright (C) 2025-2026 InstallerX Revived contributors
 package com.rosan.installer.data.engine.parser
 
-import com.rosan.installer.domain.engine.model.XposedModuleInfo
+import com.rosan.installer.domain.engine.model.packageinfo.XposedModuleInfo
 import java.util.Properties
 import java.util.zip.ZipFile
 
@@ -26,7 +26,7 @@ object XposedUtils {
      * @param zipFile The opened ZipFile instance of the APK.
      * @param metaDataMap A map containing meta-data key-value pairs parsed from AndroidManifest.xml.
      * @param manifestDescription The application description explicitly parsed from AndroidManifest.xml, if available.
-     * @return XposedModuleInfo containing minApi, targetApi, and description.
+     * @return [XposedModuleInfo] containing minApi, targetApi, and description.
      */
     fun extract(
         zipFile: ZipFile,

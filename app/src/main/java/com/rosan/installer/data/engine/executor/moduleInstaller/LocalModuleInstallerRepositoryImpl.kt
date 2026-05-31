@@ -1,18 +1,20 @@
 package com.rosan.installer.data.engine.executor.moduleInstaller
 
 import com.rosan.installer.data.engine.executor.ModuleInstallerUtils
-import com.rosan.installer.data.privileged.util.SHELL_ROOT
-import com.rosan.installer.data.privileged.util.SU_ARGS
-import com.rosan.installer.domain.engine.exception.ModuleInstallCmdInitException
-import com.rosan.installer.domain.engine.exception.ModuleInstallExitCodeNonZeroException
-import com.rosan.installer.domain.engine.model.AppEntity
+import com.rosan.installer.framework.privileged.util.SHELL_ROOT
+import com.rosan.installer.framework.privileged.util.SU_ARGS
+import com.rosan.installer.domain.engine.exception.ModuleInstallException
+import com.rosan.installer.domain.engine.model.packageinfo.AppEntity
+import com.rosan.installer.domain.engine.model.error.ModuleInstallErrorType
 import com.rosan.installer.domain.engine.repository.ModuleInstallerRepository
-import com.rosan.installer.domain.settings.model.Authorizer
-import com.rosan.installer.domain.settings.model.ConfigModel
-import com.rosan.installer.domain.settings.model.RootImplementation
+import com.rosan.installer.domain.settings.model.config.Authorizer
+import com.rosan.installer.domain.settings.model.config.ConfigModel
+import com.rosan.installer.domain.settings.model.preferences.RootMode
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.flowOn
 import timber.log.Timber
 
 /**
@@ -23,7 +25,7 @@ class LocalModuleInstallerRepositoryImpl : ModuleInstallerRepository {
         config: ConfigModel,
         module: AppEntity.ModuleEntity,
         useRoot: Boolean,
-        rootImplementation: RootImplementation
+        rootMode: RootMode
     ): Flow<String> = callbackFlow {
         // 1. Resolve Path using Helper
         val modulePath = ModuleInstallerUtils.getModulePathOrThrow(module)
@@ -38,7 +40,7 @@ class LocalModuleInstallerRepositoryImpl : ModuleInstallerRepository {
         }
 
         // 3. Construct Command String using Helper (Safe for Shell)
-        val installCmd = ModuleInstallerUtils.buildShellCommandString(rootImplementation, modulePath)
+        val installCmd = ModuleInstallerUtils.buildShellCommandString(rootMode, modulePath)
 
         val commandList = shellParts + listOf("-c", installCmd)
         Timber.d("Locally executing module install: $commandList")
@@ -62,11 +64,22 @@ class LocalModuleInstallerRepositoryImpl : ModuleInstallerRepository {
                 close()
             } else {
                 Timber.e("Local installation failed with exit code: $exitCode")
-                close(ModuleInstallExitCodeNonZeroException("Command failed with exit code $exitCode"))
+                close(
+                    ModuleInstallException(
+                        errorType = ModuleInstallErrorType.EXIT_CODE_NON_ZERO,
+                        message = "Command failed with exit code $exitCode"
+                    )
+                )
             }
         } catch (e: Exception) {
             Timber.e(e, "Failed to execute local install command.")
-            close(ModuleInstallCmdInitException("Failed to initiate command: ${e.message}", e))
+            close(
+                ModuleInstallException(
+                    errorType = ModuleInstallErrorType.CMD_INIT_FAILED,
+                    message = "Failed to initiate command: ${e.message}",
+                    cause = e
+                )
+            )
         } finally {
             process?.destroy()
         }
@@ -75,5 +88,5 @@ class LocalModuleInstallerRepositoryImpl : ModuleInstallerRepository {
             Timber.d("Local installation flow cancelled. Killing process.")
             process?.destroy()
         }
-    }
+    }.flowOn(Dispatchers.IO)
 }

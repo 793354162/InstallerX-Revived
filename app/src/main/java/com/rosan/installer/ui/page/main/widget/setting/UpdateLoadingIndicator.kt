@@ -1,5 +1,8 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2025-2026 InstallerX Revived contributors
 package com.rosan.installer.ui.page.main.widget.setting
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -29,20 +32,22 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.rosan.installer.R
-import com.rosan.installer.ui.page.main.settings.preferred.subpage.about.AboutEvent
-import com.rosan.installer.ui.page.main.settings.preferred.subpage.about.AboutViewModel
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.HazeStyle
-import dev.chrisbanes.haze.HazeTint
-import dev.chrisbanes.haze.hazeEffect
+import com.rosan.installer.ui.page.main.settings.preferred.about.AboutEvent
+import com.rosan.installer.ui.page.main.settings.preferred.about.AboutViewModel
+import com.rosan.installer.ui.theme.installerMaterial3BlurEffect
+import top.yukonga.miuix.kmp.blur.LayerBackdrop
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun UpdateLoadingIndicator(
-    hazeState: HazeState?,
+    backdrop: LayerBackdrop?,
     viewModel: AboutViewModel
 ) {
     var showUpdateLoading by remember { mutableStateOf(false) }
+
+    BackHandler(enabled = showUpdateLoading) {
+        // Block back during upgrade
+    }
 
     LaunchedEffect(Unit) {
         viewModel.uiEvents.collect { event ->
@@ -63,19 +68,10 @@ fun UpdateLoadingIndicator(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .then(hazeState?.let {
-                    Modifier.hazeEffect(
-                        state = hazeState,
-                        style = HazeStyle(
-                            backgroundColor = MaterialTheme.colorScheme.surface,
-                            tint = HazeTint(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f)),
-                            blurRadius = 25.dp,
-                            noiseFactor = 0f
-                        )
-                    ) {
-                        blurEnabled = true
-                    }
-                } ?: Modifier)
+                .installerMaterial3BlurEffect(
+                    backdrop = backdrop,
+                    blurRadius = 25f
+                )
                 .background(Color.Black.copy(alpha = 0.3f))
                 .clickable(
                     indication = null,

@@ -15,14 +15,14 @@ import com.rosan.installer.core.reflection.ReflectionProvider
 import com.rosan.installer.core.reflection.invoke
 import com.rosan.installer.core.resParser.parser.AxmlTreeParser
 import com.rosan.installer.core.resParser.parser.AxmlTreeParserImpl
-import com.rosan.installer.domain.device.model.Architecture
-import com.rosan.installer.domain.device.model.Manufacturer
-import com.rosan.installer.domain.engine.exception.AnalyseFailedAllFilesUnsupportedException
+import com.rosan.installer.core.device.model.Architecture
+import com.rosan.installer.core.device.model.Manufacturer
+import com.rosan.installer.domain.engine.exception.AnalyseException
+import com.rosan.installer.domain.engine.model.error.AnalyseErrorType
 import com.rosan.installer.domain.engine.model.AnalyseExtraEntity
-import com.rosan.installer.domain.engine.model.AppEntity
-import com.rosan.installer.domain.engine.model.DataEntity
-import com.rosan.installer.domain.engine.model.XposedModuleInfo
-import com.rosan.installer.domain.settings.model.ConfigModel
+import com.rosan.installer.domain.engine.model.packageinfo.AppEntity
+import com.rosan.installer.domain.engine.model.source.DataEntity
+import com.rosan.installer.domain.engine.model.packageinfo.XposedModuleInfo
 import timber.log.Timber
 import java.io.File
 import java.io.IOException
@@ -71,7 +71,6 @@ class ApkParser(
     }
 
     fun parseZipEntryFull(
-        config: ConfigModel,
         zipFile: ZipFile,
         entry: ZipEntry,
         parentData: DataEntity,
@@ -122,11 +121,18 @@ class ApkParser(
                 return systemResources
             } catch (e: IOException) {
                 Timber.e(e, "Failed to load APK assets from path: $path")
-                throw AnalyseFailedAllFilesUnsupportedException("Failed to load APK assets.")
+                throw AnalyseException(
+                    errorType = AnalyseErrorType.ALL_FILES_UNSUPPORTED,
+                    message = "Failed to load APK assets.",
+                    cause = e
+                )
             }
         } else {
             val constructor = reflect.getDeclaredConstructor(AssetManager::class.java)
-                ?: throw AnalyseFailedAllFilesUnsupportedException("Failed to find AssetManager constructor via reflection")
+                ?: throw AnalyseException(
+                    errorType = AnalyseErrorType.ALL_FILES_UNSUPPORTED,
+                    message = "Failed to find AssetManager constructor via reflection"
+                )
 
             val assets = constructor.newInstance() as AssetManager
 
@@ -135,10 +141,16 @@ class ApkParser(
                 name = "addAssetPath",
                 parameterTypes = arrayOf(String::class.java),
                 args = arrayOf(path)
-            ) ?: throw AnalyseFailedAllFilesUnsupportedException("Failed to find or invoke addAssetPath via reflection")
+            ) ?: throw AnalyseException(
+                errorType = AnalyseErrorType.ALL_FILES_UNSUPPORTED,
+                message = "Failed to find or invoke addAssetPath via reflection"
+            )
 
             if (cookie == 0) {
-                throw AnalyseFailedAllFilesUnsupportedException("addAssetPath returned 0 for: $path")
+                throw AnalyseException(
+                    errorType = AnalyseErrorType.ALL_FILES_UNSUPPORTED,
+                    message = "addAssetPath returned 0 for: $path"
+                )
             }
             @Suppress("DEPRECATION") return Resources(assets, systemResources.displayMetrics, systemResources.configuration)
         }
@@ -150,7 +162,10 @@ class ApkParser(
             AssetManager::class.java,
             Array<ApkAssets>::class.java,
             Boolean::class.java
-        ) ?: throw AnalyseFailedAllFilesUnsupportedException("Failed to find setApkAssets method")
+        ) ?: throw AnalyseException(
+            errorType = AnalyseErrorType.ALL_FILES_UNSUPPORTED,
+            message = "Failed to find setApkAssets method"
+        )
 
         setApkAssetsMtd.isAccessible = true
         setApkAssetsMtd.invoke(assetManager, assets, true)

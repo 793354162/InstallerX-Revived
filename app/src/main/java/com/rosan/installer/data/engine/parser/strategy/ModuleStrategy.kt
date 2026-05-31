@@ -2,11 +2,12 @@
 // Copyright (C) 2025-2026 InstallerX Revived contributors
 package com.rosan.installer.data.engine.parser.strategy
 
+import android.graphics.drawable.Drawable
 import com.rosan.installer.domain.engine.model.AnalyseExtraEntity
-import com.rosan.installer.domain.engine.model.AppEntity
-import com.rosan.installer.domain.engine.model.DataEntity
-import com.rosan.installer.domain.engine.model.DataType
-import com.rosan.installer.domain.settings.model.ConfigModel
+import com.rosan.installer.domain.engine.model.packageinfo.AppEntity
+import com.rosan.installer.domain.engine.model.source.DataEntity
+import com.rosan.installer.domain.engine.model.source.DataType
+import com.rosan.installer.domain.settings.model.config.ConfigModel
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import timber.log.Timber
@@ -72,9 +73,6 @@ class ModuleStrategy(
         try {
             Timber.d("Module: Attempting to find module.prop")
 
-            // Debug: Uncomment the line below to print all entries and check for case-sensitivity issues
-            // zipFile.entries().asSequence().forEach { Timber.d("DebugModule: ZipEntry found: ${it.name}") }
-
             val modulePropEntry = zipFile.getEntry("module.prop")
                 ?: zipFile.getEntry("common/module.prop")
 
@@ -107,6 +105,34 @@ class ModuleStrategy(
                     return emptyList()
                 }
 
+                // Attempt to parse and load the icon from zip, fallback to webuiIcon if actionIcon is missing or invalid
+                var iconDrawable: Drawable? = null
+                val iconKeys = listOf("actionIcon", "webuiIcon")
+
+                for (key in iconKeys) {
+                    // Remove leading slash and whitespaces just in case the developer incorrectly format the path
+                    val iconPath = properties.getProperty(key)?.trim()?.removePrefix("/")
+
+                    if (!iconPath.isNullOrEmpty()) {
+                        val iconEntry = zipFile.getEntry(iconPath)
+                        if (iconEntry != null) {
+                            try {
+                                zipFile.getInputStream(iconEntry).use { iconStream ->
+                                    iconDrawable = Drawable.createFromStream(iconStream, iconPath)
+                                }
+                                // Break the loop if the icon is successfully loaded
+                                if (iconDrawable != null) {
+                                    break
+                                }
+                            } catch (e: Exception) {
+                                Timber.w(e, "Module: Failed to decode $key from entry: $iconPath")
+                            }
+                        } else {
+                            Timber.d("Module: $key entry not found in zip: $iconPath")
+                        }
+                    }
+                }
+
                 return listOf(
                     AppEntity.ModuleEntity(
                         id = id,
@@ -116,6 +142,7 @@ class ModuleStrategy(
                         author = properties.getProperty("author", ""),
                         description = properties.getProperty("description", ""),
                         data = data,
+                        icon = iconDrawable,
                         sourceType = extra.dataType
                     )
                 )

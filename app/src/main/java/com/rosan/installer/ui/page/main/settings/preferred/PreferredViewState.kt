@@ -1,10 +1,8 @@
 package com.rosan.installer.ui.page.main.settings.preferred
 
-import com.rosan.installer.domain.settings.model.Authorizer
+import com.rosan.installer.domain.settings.model.config.Authorizer
 
 data class PreferredViewState(
-    val isLoading: Boolean = true,
-    val useBlur: Boolean = true,
     val authorizer: Authorizer = Authorizer.Shizuku,
     val customizeAuthorizer: String = "",
     val adbVerifyEnabled: Boolean = true,

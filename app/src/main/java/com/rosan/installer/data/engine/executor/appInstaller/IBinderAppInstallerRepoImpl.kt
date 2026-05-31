@@ -22,25 +22,26 @@ import com.rosan.installer.core.reflection.getValue
 import com.rosan.installer.data.engine.executor.PackageInstallerUtil.abiOverride
 import com.rosan.installer.data.engine.executor.PackageInstallerUtil.installFlags
 import com.rosan.installer.data.engine.executor.PackageManagerUtil
-import com.rosan.installer.data.privileged.util.requireDhizukuPermissionGranted
-import com.rosan.installer.domain.device.model.Architecture
+import com.rosan.installer.framework.privileged.util.requireDhizukuPermissionGranted
+import com.rosan.installer.core.device.model.Architecture
 import com.rosan.installer.domain.device.provider.DeviceCapabilityProvider
 import com.rosan.installer.domain.engine.exception.InstallException
-import com.rosan.installer.domain.engine.model.DataType
-import com.rosan.installer.domain.engine.model.InstallEntity
-import com.rosan.installer.domain.engine.model.InstallErrorType
-import com.rosan.installer.domain.engine.model.InstallOption
-import com.rosan.installer.domain.engine.model.sourcePath
+import com.rosan.installer.domain.engine.model.source.DataType
+import com.rosan.installer.domain.engine.model.install.InstallEntity
+import com.rosan.installer.domain.engine.model.error.InstallErrorType
+import com.rosan.installer.domain.engine.model.install.InstallOption
+import com.rosan.installer.domain.engine.model.install.sourcePath
 import com.rosan.installer.domain.engine.repository.AppInstallerRepository
 import com.rosan.installer.domain.privileged.model.PostInstallTaskInfo
 import com.rosan.installer.domain.privileged.provider.PostInstallTaskProvider
-import com.rosan.installer.domain.settings.model.Authorizer
-import com.rosan.installer.domain.settings.model.ConfigModel
-import com.rosan.installer.domain.settings.model.PackageSource
-import com.rosan.installer.util.addFlag
+import com.rosan.installer.domain.settings.model.config.Authorizer
+import com.rosan.installer.domain.settings.model.config.ConfigModel
+import com.rosan.installer.domain.settings.model.config.InstallerMode
+import com.rosan.installer.domain.settings.model.config.PackageSource
+import com.rosan.installer.core.bitmask.addFlag
 import com.rosan.installer.util.pm.isFreshInstallCandidate
 import com.rosan.installer.util.pm.isPackageArchivedCompat
-import com.rosan.installer.util.removeFlag
+import com.rosan.installer.core.bitmask.removeFlag
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -69,7 +70,13 @@ abstract class IBinderAppInstallerRepoImpl(
         val installerPackageName = when (config.authorizer) {
             Authorizer.Dhizuku -> getDhizukuComponentName()
             Authorizer.None -> if (capabilityProvider.isSystemApp) context.packageName else BuildConfig.APPLICATION_ID
-            else -> config.installer ?: BuildConfig.APPLICATION_ID
+            else -> when (config.installerMode) {
+                InstallerMode.Self -> BuildConfig.APPLICATION_ID
+                // Initiator mode: use the dedicated runtime field; fall back to self if null.
+                InstallerMode.Initiator -> config.initiatorPackageName ?: BuildConfig.APPLICATION_ID
+                // Custom mode: use the user-provided value as-is; fall back to self if null.
+                InstallerMode.Custom -> config.installer ?: BuildConfig.APPLICATION_ID
+            }
         }
 
         return (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
@@ -122,14 +129,7 @@ abstract class IBinderAppInstallerRepoImpl(
         try {
             Timber.d("Approving session $sessionId (granted: $granted) via Binder wrapper")
 
-            reflect.invokeMethod(
-                iPackageInstaller,
-                "setPermissionsResult",
-                IPackageInstaller::class.java,
-                arrayOf(Int::class.java, Boolean::class.java),
-                sessionId,
-                granted
-            )
+            iPackageInstaller.setPermissionsResult(sessionId, granted)
         } catch (e: Exception) {
             Timber.e(e, "Failed to approve session via Binder")
 

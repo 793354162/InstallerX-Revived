@@ -5,13 +5,12 @@ package com.rosan.installer.ui.page.main.settings.preferred
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rosan.installer.R
-import com.rosan.installer.domain.settings.model.Authorizer
+import com.rosan.installer.domain.settings.model.config.Authorizer
 import com.rosan.installer.domain.settings.provider.PrivilegedProvider
 import com.rosan.installer.domain.settings.provider.SystemEnvProvider
-import com.rosan.installer.domain.settings.repository.AppSettingsRepo
+import com.rosan.installer.domain.settings.repository.AppSettingsRepository
 import com.rosan.installer.domain.settings.repository.BooleanSetting
 import com.rosan.installer.domain.settings.usecase.settings.UpdateSettingUseCase
-import com.rosan.installer.domain.updater.model.UpdateInfo
 import com.rosan.installer.domain.updater.repository.UpdateRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.BufferOverflow
@@ -23,9 +22,10 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import timber.log.Timber
 
 class PreferredViewModel(
-    appSettingsRepo: AppSettingsRepo,
+    appSettingsRepo: AppSettingsRepository,
     private val updateRepo: UpdateRepository,
     private val systemEnvProvider: SystemEnvProvider,
     private val privilegedProvider: PrivilegedProvider,
@@ -39,9 +39,6 @@ class PreferredViewModel(
     )
     val uiEvents = _uiEvents.asSharedFlow()
 
-    // --- External Environment State Flows ---
-    private val updateInfoFlow = MutableStateFlow<UpdateInfo?>(null)
-
     private val adbVerifyEnabledFlow = MutableStateFlow(true)
     private val isIgnoringBatteryOptFlow = MutableStateFlow(true)
 
@@ -49,13 +46,11 @@ class PreferredViewModel(
         appSettingsRepo.preferencesFlow,
         adbVerifyEnabledFlow,
         isIgnoringBatteryOptFlow,
-        updateInfoFlow
+        updateRepo.updateInfoFlow
     ) { prefs, adbVerify, batteryOpt, updateInfo ->
         val customizeAuthorizer = if (prefs.authorizer == Authorizer.Customize) prefs.customizeAuthorizer else ""
 
         PreferredViewState(
-            isLoading = false,
-            useBlur = prefs.useBlur,
             authorizer = prefs.authorizer,
             customizeAuthorizer = customizeAuthorizer,
             autoLockInstaller = prefs.autoLockInstaller,
@@ -67,7 +62,7 @@ class PreferredViewModel(
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.Eagerly,
-        initialValue = PreferredViewState(isLoading = true)
+        initialValue = PreferredViewState()
     )
 
     init {
@@ -111,6 +106,7 @@ class PreferredViewModel(
         }.onSuccess {
             adbVerifyEnabledFlow.value = enabled
         }.onFailure { e ->
+            Timber.e(e, "Failed to set ADB install verification to $enabled")
             _uiEvents.emit(PreferredViewEvent.ShowDefaultInstallerErrorDetail(R.string.disable_adb_install_verify_failed, e, action))
         }
     }
@@ -122,8 +118,7 @@ class PreferredViewModel(
     }
 
     private fun checkUpdate() = viewModelScope.launch(Dispatchers.IO) {
-        val result = updateRepo.checkUpdate()
-        if (result != null) updateInfoFlow.value = result
+        updateRepo.checkUpdate()
     }
 
     private fun setDefaultInstaller(lock: Boolean, action: PreferredViewAction) = viewModelScope.launch {
@@ -134,6 +129,7 @@ class PreferredViewModel(
             _uiEvents.emit(PreferredViewEvent.ShowDefaultInstallerResult(successResId))
         }.onFailure { e ->
             val errorResId = if (lock) R.string.lock_default_installer_failed else R.string.unlock_default_installer_failed
+            Timber.e(e, "Failed to ${if (lock) "lock" else "unlock"} default installer")
             _uiEvents.emit(PreferredViewEvent.ShowDefaultInstallerErrorDetail(errorResId, e, action))
         }
     }
